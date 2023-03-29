@@ -11,7 +11,6 @@ import (
 )
 
 const FlushTimeoutMs = 15 * 1000
-const ReadMessageTimeoutMs = FlushTimeoutMs
 
 func init() {
 	log.SetFormatter(&log.JSONFormatter{})
@@ -22,7 +21,7 @@ func init() {
 func main() {
 
 	if len(os.Args) != 2 {
-		fmt.Fprintf(os.Stderr, "Usage: %s <config-file-path>\n",
+		_, _ = fmt.Fprintf(os.Stderr, "Usage: %s <config-file-path>\n",
 			os.Args[0])
 		os.Exit(1)
 	}
@@ -45,8 +44,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	consumer_quitter := make(chan struct{})
-	go consume(c, topic, consumer_quitter)
+	consumerQuitter := make(chan struct{})
+	go consume(c, topic, consumerQuitter)
 
 	// Go-routine to handle message delivery reports and
 	// possibly other event types (errors, stats, etc)
@@ -63,7 +62,7 @@ func main() {
 
 	sendTimestamps(30, p, topic)
 
-	close(consumer_quitter)
+	close(consumerQuitter)
 	p.Flush(FlushTimeoutMs)
 	p.Close()
 }
@@ -79,8 +78,8 @@ func consume(consumer *kafka.Consumer, topic string, quit chan struct{}) {
 	run := true
 	for run {
 		select {
-		case sig := <-quit:
-			log.Infof("Caught signal %v: terminating\n", sig)
+		case <-quit:
+			log.Infof("Caught quit message: terminating\n")
 			run = false
 		default:
 			ev, err := consumer.ReadMessage(100 * time.Millisecond)
@@ -125,11 +124,14 @@ func sendTimestamps(count int, producer *kafka.Producer, topic string) {
 func sendTimestamp(producer *kafka.Producer, topic string, sequence uint32) error {
 	message, _ := BytesFromTimestamp(time.Now().UnixMilli(), sequence)
 	log.Infof("Producing message %v", string(*message))
-	producer.Produce(&kafka.Message{
+	err := producer.Produce(&kafka.Message{
 		TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
 		Key:            []byte{},
 		Value:          *message,
 	}, nil)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
