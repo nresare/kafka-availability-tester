@@ -5,11 +5,12 @@ import (
 )
 
 type message struct {
-	Timestamp int64 `json:"timestamp"`
+	Timestamp int64  `json:"ts"`
+	Sequence  uint32 `json:"seq"`
 }
 
-func BytesFromTimestamp(timestamp int64) (*[]byte, error) {
-	bytes, err := json.Marshal(message{timestamp})
+func BytesFromTimestamp(timestamp int64, sequence uint32) (*[]byte, error) {
+	bytes, err := json.Marshal(message{timestamp, sequence})
 	if err != nil {
 		return nil, err
 	}

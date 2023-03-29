@@ -7,9 +7,9 @@ import (
 
 func TestMessage(t *testing.T) {
 	instant := int64(1680022107943072)
-	expected := []byte("{\"timestamp\":1680022107943072}")
+	expected := []byte("{\"ts\":1680022107943072,\"seq\":0}")
 
-	actual, err := BytesFromTimestamp(instant)
+	actual, err := BytesFromTimestamp(instant, 0)
 	if err != nil {
 		t.Fatalf("Could not encode instant into json: %v", err)
 	}
