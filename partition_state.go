@@ -22,21 +22,20 @@ type EventSink interface {
 }
 
 type StateWatcher struct {
-	sentChannel     chan uint64
-	receivedChannel chan uint64
-	waitGroup       *sync.WaitGroup
+	channel   chan msg
+	waitGroup *sync.WaitGroup
 }
 
 func (s *StateWatcher) sent(seq uint64) {
-	s.sentChannel <- seq
+	s.channel <- msg{Sent, seq}
 }
 
 func (s *StateWatcher) received(seq uint64) {
-	s.receivedChannel <- seq
+	s.channel <- msg{Received, seq}
 }
 
 func (s *StateWatcher) stop() {
-	close(s.sentChannel)
+	close(s.channel)
 	s.waitGroup.Wait()
 }
 
@@ -45,12 +44,11 @@ func NewStateWatcher(sink EventSink) *StateWatcher {
 }
 
 func newStateWatcherWithClock(sink EventSink, clock clock.Clock) *StateWatcher {
-	sent := make(chan uint64)
-	received := make(chan uint64)
+	c := make(chan msg)
 	var waitGroup sync.WaitGroup
 	waitGroup.Add(1)
 
-	stateWatcher := &StateWatcher{sent, received, &waitGroup}
+	stateWatcher := &StateWatcher{c, &waitGroup}
 	go statusUpdaterLoop(stateWatcher, sink, clock)
 	return stateWatcher
 }
@@ -81,32 +79,46 @@ func statusUpdaterLoop(stateWatcher *StateWatcher, sink EventSink, clock clock.C
 		select {
 		case <-timer.C:
 			updateState(state, sink)
-		case seq, more := <-stateWatcher.sentChannel:
+		case msg, more := <-stateWatcher.channel:
 			if !more {
 				log.Info("Updater loop is being asked to quit, exiting")
 				timer.Stop()
 				stateWatcher.waitGroup.Done()
 				return
 			}
-			timer.Reset(state.timeout + AdditionalTimerTime)
-			sentTimes.PushBack(seqSentTime{seq: seq, sent: state.clock.Now()})
-		case seq := <-stateWatcher.receivedChannel:
-			sentTime := removeBySeq(sentTimes, seq)
-			if sentTime == nil {
-				log.Warnf("Received a response without sentChannel time, probably a duplicate")
+			if msg.t == Sent {
+				timer.Reset(state.timeout + AdditionalTimerTime)
+				sentTimes.PushBack(seqSentTime{seq: msg.seq, sent: state.clock.Now()})
 			} else {
-				state.lastReceived = clock.Now()
-				state.lastLatency = clock.Now().Sub(*sentTime)
-				sink.submitLatency(state.lastLatency)
-				updateState(state, sink)
-				timer.Stop()
+				sentTime := removeBySeq(sentTimes, msg.seq)
+				if sentTime == nil {
+					log.Warnf("Received a response without channel time, probably a duplicate")
+				} else {
+					state.lastReceived = clock.Now()
+					state.lastLatency = clock.Now().Sub(*sentTime)
+					sink.submitLatency(state.lastLatency)
+					updateState(state, sink)
+					timer.Stop()
+				}
 			}
 		}
 	}
 }
 
+type msgType int8
+
+const (
+	Sent msgType = iota
+	Received
+)
+
+type msg struct {
+	t   msgType
+	seq uint64
+}
+
 // If a seqSentTime with sequence number matching seq, delete the item from list
-// and return a pointer to it's sentChannel time. If not found, return nil
+// and return a pointer to it's channel time. If not found, return nil
 func removeBySeq(sentTimes *list.List, seq uint64) *time.Time {
 	for e := sentTimes.Front(); e != nil; e = e.Next() {
 		sst := e.Value.(seqSentTime)
