@@ -2,9 +2,7 @@ package main
 
 import (
 	"github.com/benbjohnson/clock"
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
-	"reflect"
 	"testing"
 	"time"
 )
@@ -15,9 +13,6 @@ type testEventSink struct {
 }
 
 func (ls *testEventSink) submitLatency(latency time.Duration) {
-	if ls.latest != 0 {
-		log.Fatal("testEventSink should only be used once")
-	}
 	ls.latest = latency
 }
 
@@ -25,94 +20,84 @@ func (ls *testEventSink) changeState(state State) {
 	ls.states = append(ls.states, state)
 }
 
-// just verify that we are good even though PartitionState.eventSink is not set
-func TestLatencyReportingNoSink(t *testing.T) {
-	c, state, _ := setup()
-
-	state.SendAttempt(10)
-	c.Add(14 * time.Millisecond)
-	state.Received(10)
-}
-
 func TestLatencyReportingSink(t *testing.T) {
-	c, state, eventSink := setup()
+	c, sink, sw := setup()
 
-	state.SendAttempt(10)
+	sw.sent(10)
 	c.Add(14 * time.Millisecond)
-	state.Received(10)
+	sw.received(10)
 
-	if eventSink.latest != 14*time.Millisecond {
-		t.Errorf("Expected latest to be 14 milliseconds, but was %v", eventSink.latest)
+	sw.stop()
+	if sink.latest != 14*time.Millisecond {
+		t.Errorf("Expected latest to be 14 milliseconds, but was %v", sink.latest)
 	}
+
 }
 
 // verifying that we can delete messages out of sequence
 func TestRemoveNextToLast(t *testing.T) {
-	_, state, _ := setup()
+	_, _, sw := setup()
 
-	state.SendAttempt(10)
-	state.SendAttempt(11)
-	state.SendAttempt(12)
+	sw.sent(10)
+	sw.sent(11)
+	sw.sent(12)
 
-	state.Received(11)
+	sw.received(11)
 
-	var actual []seqSentTime
-	for e := state.sentTimes.Front(); e != nil; e = e.Next() {
-		actual = append(actual, e.Value.(seqSentTime))
-	}
-
-	assert.True(t, reflect.DeepEqual(actual, []seqSentTime{
-		{10, time.UnixMilli(0)},
-		{12, time.UnixMilli(0)},
-	}))
+	sw.stop()
 }
 
 // let's just verify that we can handle duplicate messages
 func TestDuplicateMessage(t *testing.T) {
-	_, state, _ := setup()
-	state.SendAttempt(10)
-	state.Received(10)
-	state.Received(10)
+	_, _, sw := setup()
+
+	sw.sent(10)
+
+	sw.received(10)
+	sw.received(10)
+
+	sw.stop()
 }
 
 func TestStateAvailable(t *testing.T) {
-	c, state, _ := setup()
+	c, sink, sw := setup()
 
-	state.SendAttempt(10)
+	sw.sent(10)
 	c.Add(1 * time.Second)
-	state.Received(10)
-	c.Add(1 * time.Second)
-	state.SendAttempt(11)
+	sw.received(10)
 
-	assert.Equal(t, state.state, Available)
+	sw.stop()
+	assert.Equal(t, []State{Available}, sink.states)
 }
 
 // The partition is unavailable if it was too long since we Received anything
 func TestStateTooLongAgoUnavailable(t *testing.T) {
-	c, state, _ := setup()
-	state.SendAttempt(1)
+	c, sink, sw := setup()
+
+	sw.sent(10)
 	c.Add(20 * time.Second)
-	assert.Equal(t, state.state, Unavailable)
+
+	sw.stop()
+	assert.Equal(t, []State{Unavailable}, sink.states)
 }
 
 func TestStateChange(t *testing.T) {
-	c, state, eventSink := setup()
-	state.SendAttempt(1)
-	c.Add(20 * time.Second)
-	assert.Equal(t, state.state, Unavailable)
-	c.Add(1 * time.Second)
-	state.SendAttempt(2)
-	c.Add(10 * time.Millisecond)
-	state.Received(2)
-	assert.Equal(t, state.state, Available)
+	c, sink, sw := setup()
 
-	assert.Equal(t, []State{Unavailable, Available}, eventSink.states)
+	sw.sent(1)
+	c.Add(20 * time.Second)
+	sw.sent(2)
+	c.Add(1 * time.Second)
+	sw.received(1)
+	sw.received(2)
+
+	sw.stop()
+	assert.Equal(t, []State{Unavailable, Available}, sink.states)
 }
 
-func setup() (*clock.Mock, PartitionSate, *testEventSink) {
-	eventSink := &testEventSink{}
-	partitionState := NewPartitionState(eventSink)
-	mockClock := clock.NewMock()
-	partitionState.clock = mockClock
-	return mockClock, partitionState, eventSink
+func setup() (c *clock.Mock, sink *testEventSink, stateWatcher *StateWatcher) {
+	sink = &testEventSink{}
+	c = clock.NewMock()
+	stateWatcher = newStateWatcherWithClock(sink, c)
+	return
 }

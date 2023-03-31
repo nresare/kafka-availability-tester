@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"github.com/benbjohnson/clock"
 	log "github.com/sirupsen/logrus"
+	"sync"
 	"time"
 )
 
@@ -20,50 +21,101 @@ type EventSink interface {
 	changeState(state State)
 }
 
-// PartitionSate observes SendAttempt and Received messages and their sequences
-// and uses those messages to determine latency as well as availability
-// of the tracked partition. For now, this is assumed to
-type PartitionSate struct {
+type StateWatcher struct {
+	sentChannel     chan uint64
+	receivedChannel chan uint64
+	waitGroup       *sync.WaitGroup
+}
+
+func (s *StateWatcher) sent(seq uint64) {
+	s.sentChannel <- seq
+}
+
+func (s *StateWatcher) received(seq uint64) {
+	s.receivedChannel <- seq
+}
+
+func (s *StateWatcher) stop() {
+	close(s.sentChannel)
+	s.waitGroup.Wait()
+}
+
+func NewStateWatcher(sink EventSink) *StateWatcher {
+	return newStateWatcherWithClock(sink, clock.New())
+}
+
+func newStateWatcherWithClock(sink EventSink, clock clock.Clock) *StateWatcher {
+	sent := make(chan uint64)
+	received := make(chan uint64)
+	var waitGroup sync.WaitGroup
+	waitGroup.Add(1)
+
+	stateWatcher := &StateWatcher{sent, received, &waitGroup}
+	go statusUpdaterLoop(stateWatcher, sink, clock)
+	return stateWatcher
+}
+
+// we want to make sure that the Timer waits slightly longer than timeout to make sure that
+// we have already reached the timeout threshold when waking up
+const AdditionalTimerTime = 10 * time.Millisecond
+
+type partitionState struct {
 	state        State
-	partition    string
 	clock        clock.Clock
-	sentTimes    *list.List
-	eventSink    EventSink
 	timeout      time.Duration
 	lastLatency  time.Duration
 	lastReceived time.Time
 }
 
-func NewPartitionState(sink EventSink) PartitionSate {
-	return PartitionSate{
-		state:     Before,
-		clock:     clock.New(),
-		sentTimes: list.New(),
-		eventSink: sink,
-		timeout:   10 * time.Second,
+// This method is intended to run in its own goroutine and is responsible for detecting changes
+// to state and calling EventSink.changeState() when that happens
+func statusUpdaterLoop(stateWatcher *StateWatcher, sink EventSink, clock clock.Clock) {
+	state := &partitionState{
+		clock:   clock,
+		timeout: 10 * time.Second,
 	}
-}
+	sentTimes := list.New()
 
-func (p *PartitionSate) SendAttempt(seq uint64) {
-	p.updateState()
-	p.sentTimes.PushBack(seqSentTime{seq: seq, sent: p.clock.Now()})
-}
-
-func (p *PartitionSate) Received(seq uint64) {
-	// look through all the messages previously SendAttempt, match on sequence, remove and optionally submitLatency latency to sink
-	for e := p.sentTimes.Front(); e != nil; e = e.Next() {
-		sst := e.Value.(seqSentTime)
-		if sst.seq == seq {
-			p.lastReceived = p.clock.Now()
-			p.lastLatency = p.clock.Now().Sub(sst.sent)
-			if p.eventSink != nil {
-				p.eventSink.submitLatency(p.lastLatency)
+	timer := clock.Timer(state.timeout + AdditionalTimerTime)
+	for {
+		select {
+		case <-timer.C:
+			updateState(state, sink)
+		case seq, more := <-stateWatcher.sentChannel:
+			if !more {
+				log.Info("Updater loop is being asked to quit, exiting")
+				timer.Stop()
+				stateWatcher.waitGroup.Done()
+				return
 			}
-			p.sentTimes.Remove(e)
-			break
+			timer.Reset(state.timeout + AdditionalTimerTime)
+			sentTimes.PushBack(seqSentTime{seq: seq, sent: state.clock.Now()})
+		case seq := <-stateWatcher.receivedChannel:
+			sentTime := removeBySeq(sentTimes, seq)
+			if sentTime == nil {
+				log.Warnf("Received a response without sentChannel time, probably a duplicate")
+			} else {
+				state.lastReceived = clock.Now()
+				state.lastLatency = clock.Now().Sub(*sentTime)
+				sink.submitLatency(state.lastLatency)
+				updateState(state, sink)
+				timer.Stop()
+			}
 		}
 	}
-	p.updateState()
+}
+
+// If a seqSentTime with sequence number matching seq, delete the item from list
+// and return a pointer to it's sentChannel time. If not found, return nil
+func removeBySeq(sentTimes *list.List, seq uint64) *time.Time {
+	for e := sentTimes.Front(); e != nil; e = e.Next() {
+		sst := e.Value.(seqSentTime)
+		if sst.seq == seq {
+			sentTimes.Remove(e)
+			return &sst.sent
+		}
+	}
+	return nil
 }
 
 type seqSentTime struct {
@@ -71,20 +123,20 @@ type seqSentTime struct {
 	sent time.Time
 }
 
-func (p *PartitionSate) updateState() {
-	state := p.calculateState()
-	if p.state != state {
-		p.eventSink.changeState(state)
-		p.state = state
+func updateState(state *partitionState, sink EventSink) {
+	s := calculateState(state)
+	if state.state != s {
+		sink.changeState(s)
+		state.state = s
 	}
 }
 
-func (p *PartitionSate) calculateState() State {
-	if p.lastReceived.Add(p.timeout).Before(p.clock.Now()) {
-		log.Debugf("The last Received message was more than %s ago, partition is unavailable", p.timeout.String())
+func calculateState(state *partitionState) State {
+	if state.lastReceived.Add(state.timeout).Before(state.clock.Now()) {
+		log.Debugf("The last Received message was more than %s ago, partition is unavailable", state.timeout.String())
 		return Unavailable
 	}
-	if p.lastLatency < p.timeout {
+	if state.lastLatency < state.timeout {
 		return Available
 	}
 	return Unavailable
