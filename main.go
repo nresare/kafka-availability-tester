@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"time"
 
@@ -20,13 +19,8 @@ func init() {
 
 func main() {
 
-	if len(os.Args) != 2 {
-		_, _ = fmt.Fprintf(os.Stderr, "Usage: %s <config-file-path>\n",
-			os.Args[0])
-		os.Exit(1)
-	}
-	configFile := os.Args[1]
-	conf := ReadConfig(configFile)
+	// conf := ReadConfig(configFile)
+	conf := kafka.ConfigMap{"bootstrap.servers": "localhost:9092"}
 
 	topic := "purchases"
 	p, err := kafka.NewProducer(&conf)
