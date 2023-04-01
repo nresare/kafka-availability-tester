@@ -3,21 +3,40 @@ package main
 import (
 	"github.com/benbjohnson/clock"
 	"github.com/stretchr/testify/assert"
+	"sync"
 	"testing"
 	"time"
 )
 
 type testEventSink struct {
-	latest time.Duration
-	states []State
+	latest      time.Duration
+	latestMutex sync.Mutex
+	states      []State
+	statesMutex sync.Mutex
 }
 
 func (ls *testEventSink) submitLatency(latency time.Duration) {
+	defer ls.latestMutex.Unlock()
+	ls.latestMutex.Lock()
 	ls.latest = latency
 }
 
+func (ls *testEventSink) getLatestLatency() time.Duration {
+	defer ls.latestMutex.Unlock()
+	ls.latestMutex.Lock()
+	return ls.latest
+}
+
 func (ls *testEventSink) changeState(state State) {
+	defer ls.statesMutex.Unlock()
+	ls.statesMutex.Lock()
 	ls.states = append(ls.states, state)
+}
+
+func (ls *testEventSink) assertStateEqual(t *testing.T, expected []State) {
+	defer ls.statesMutex.Unlock()
+	ls.statesMutex.Lock()
+	assert.Equal(t, expected, ls.states)
 }
 
 func TestLatencyReportingSink(t *testing.T) {
@@ -28,8 +47,9 @@ func TestLatencyReportingSink(t *testing.T) {
 	sw.received(10)
 
 	sw.stop()
-	if sink.latest != 14*time.Millisecond {
-		t.Errorf("Expected latest to be 14 milliseconds, but was %v", sink.latest)
+	latest := sink.getLatestLatency()
+	if latest != 14*time.Millisecond {
+		t.Errorf("Expected latest to be 14 milliseconds, but was %v", latest)
 	}
 
 }
@@ -67,7 +87,7 @@ func TestStateAvailable(t *testing.T) {
 	sw.received(10)
 
 	sw.stop()
-	assert.Equal(t, []State{Available}, sink.states)
+	sink.assertStateEqual(t, []State{Available})
 }
 
 // The partition is unavailable if it was too long since we Received anything
@@ -78,7 +98,7 @@ func TestStateTooLongAgoUnavailable(t *testing.T) {
 	c.Add(20 * time.Second)
 
 	sw.stop()
-	assert.Equal(t, []State{Unavailable}, sink.states)
+	sink.assertStateEqual(t, []State{Unavailable})
 }
 
 func TestStateChange(t *testing.T) {
@@ -92,7 +112,7 @@ func TestStateChange(t *testing.T) {
 	sw.received(2)
 
 	sw.stop()
-	assert.Equal(t, []State{Unavailable, Available}, sink.states)
+	sink.assertStateEqual(t, []State{Unavailable, Available})
 }
 
 func setup() (c *clock.Mock, sink *testEventSink, stateWatcher *StateWatcher) {
