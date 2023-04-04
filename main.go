@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/kafka"
@@ -20,9 +21,9 @@ func init() {
 func main() {
 
 	// conf := ReadConfig(configFile)
-	conf := kafka.ConfigMap{"bootstrap.servers": "localhost:9092"}
+	conf := kafka.ConfigMap{"bootstrap.servers": "localhost:7070"}
 
-	topic := "purchases"
+	topic := "test"
 	p, err := kafka.NewProducer(&conf)
 	if err != nil {
 		log.Panicf("Failed to create producer: %s", err)
@@ -39,7 +40,9 @@ func main() {
 	}
 
 	consumerQuitter := make(chan struct{})
-	go consume(c, topic, consumerQuitter)
+	var consumerWaitGroup sync.WaitGroup
+	consumerWaitGroup.Add(1)
+	go consume(c, topic, consumerQuitter, &consumerWaitGroup)
 
 	// Go-routine to handle message delivery reports and
 	// possibly other event types (errors, stats, etc)
@@ -57,11 +60,12 @@ func main() {
 	sendTimestamps(30, p, topic)
 
 	close(consumerQuitter)
-	p.Flush(FlushTimeoutMs)
+	consumerWaitGroup.Wait()
+	c.Close()
 	p.Close()
 }
 
-func consume(consumer *kafka.Consumer, topic string, quit chan struct{}) {
+func consume(consumer *kafka.Consumer, topic string, quit chan struct{}, waitGroup *sync.WaitGroup) {
 	err := consumer.SubscribeTopics([]string{topic}, nil)
 	if err != nil {
 		log.Panicf("Failed to create consumer: %v", err)
@@ -69,12 +73,13 @@ func consume(consumer *kafka.Consumer, topic string, quit chan struct{}) {
 	}
 
 	// Process messages
-	run := true
-	for run {
+
+	for true {
 		select {
 		case <-quit:
 			log.Infof("Caught quit message: terminating\n")
-			run = false
+			waitGroup.Done()
+			return
 		default:
 			ev, err := consumer.ReadMessage(100 * time.Millisecond)
 			if err != nil {
@@ -92,11 +97,10 @@ func consume(consumer *kafka.Consumer, topic string, quit chan struct{}) {
 			log.Infof("Latency! %s", time.Now().Sub(time.UnixMilli(msg.Timestamp)).String())
 		}
 	}
-
 }
 
 func sendTimestamps(count int, producer *kafka.Producer, topic string) {
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(500 * time.Millisecond)
 	quit := make(chan struct{})
 	sequence := uint32(0)
 	for {
@@ -123,6 +127,7 @@ func sendTimestamp(producer *kafka.Producer, topic string, sequence uint32) erro
 		Key:            []byte{},
 		Value:          *message,
 	}, nil)
+	_ = producer.Flush(FlushTimeoutMs)
 	if err != nil {
 		return err
 	}
