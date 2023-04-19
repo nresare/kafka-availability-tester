@@ -1,7 +1,9 @@
 package main
 
+import "C"
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"sync"
 	"time"
@@ -19,7 +21,6 @@ func init() {
 }
 
 func main() {
-
 	// conf := ReadConfig(configFile)
 	conf := kafka.ConfigMap{"bootstrap.servers": "localhost:7070"}
 
@@ -53,7 +54,10 @@ func main() {
 				if ev.TopicPartition.Error != nil {
 					log.Warnf("Failed to deliver message: %v\n", ev.TopicPartition)
 				}
+			default:
+				log.Info("Got event from events consumer: %s", ev)
 			}
+
 		}
 	}()
 
@@ -61,7 +65,7 @@ func main() {
 
 	close(consumerQuitter)
 	consumerWaitGroup.Wait()
-	c.Close()
+	_ = c.Close()
 	p.Close()
 }
 
@@ -81,10 +85,10 @@ func consume(consumer *kafka.Consumer, topic string, quit chan struct{}, waitGro
 			waitGroup.Done()
 			return
 		default:
-			ev, err := consumer.ReadMessage(100 * time.Millisecond)
+			ev, err := readMessage(consumer, time.Second)
 			if err != nil {
 				if err.(kafka.Error).Code() != kafka.ErrTimedOut {
-					log.Infof("Informal error, apparently: %v", err)
+					log.Infof("Informal error, apparently: %v", err.(kafka.Error).Code())
 				}
 				// Errors are informational and automatically handled by the consumer
 				continue
@@ -97,6 +101,43 @@ func consume(consumer *kafka.Consumer, topic string, quit chan struct{}, waitGro
 			log.Infof("Latency! %s", time.Now().Sub(time.UnixMilli(msg.Timestamp)).String())
 		}
 	}
+}
+
+func readMessage(consumer *kafka.Consumer, timeout time.Duration) (*kafka.Message, error) {
+	var absTimeout time.Time
+	var timeoutMs int
+
+	if timeout > 0 {
+		absTimeout = time.Now().Add(timeout)
+		timeoutMs = (int)(timeout.Seconds() * 1000.0)
+	} else {
+		timeoutMs = (int)(timeout)
+	}
+	for {
+		ev := consumer.Poll(timeoutMs)
+
+		switch e := ev.(type) {
+		case *kafka.Message:
+			if e.TopicPartition.Error != nil {
+				return e, e.TopicPartition.Error
+			}
+			return e, nil
+		case kafka.Error:
+			return nil, e
+		default:
+			log.Infof("Got event '%v'", ev)
+		}
+
+		if timeout > 0 {
+			// Calculate remaining time
+			timeoutMs = int(math.Max(0.0, absTimeout.Sub(time.Now()).Seconds()*1000.0))
+		}
+
+		if timeoutMs == 0 && ev == nil {
+			return nil, kafka.Error{}
+		}
+	}
+
 }
 
 func sendTimestamps(count int, producer *kafka.Producer, topic string) {
