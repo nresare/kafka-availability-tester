@@ -2,10 +2,8 @@ package main
 
 import "C"
 import (
-	"encoding/json"
 	"math"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/kafka"
@@ -34,17 +32,6 @@ func main() {
 	conf["group.id"] = "kafka-availability-tester"
 	//conf["auto.offset.reset"] = "earliest"
 
-	c, err := kafka.NewConsumer(&conf)
-	if err != nil {
-		log.Panicf("Failed to create consumer: %s", err)
-		os.Exit(1)
-	}
-
-	consumerQuitter := make(chan struct{})
-	var consumerWaitGroup sync.WaitGroup
-	consumerWaitGroup.Add(1)
-	go consume(c, topic, consumerQuitter, &consumerWaitGroup)
-
 	// Go-routine to handle message delivery reports and
 	// possibly other event types (errors, stats, etc)
 	go func() {
@@ -61,46 +48,21 @@ func main() {
 		}
 	}()
 
-	sendTimestamps(30, p, topic)
-
-	close(consumerQuitter)
-	consumerWaitGroup.Wait()
-	_ = c.Close()
-	p.Close()
-}
-
-func consume(consumer *kafka.Consumer, topic string, quit chan struct{}, waitGroup *sync.WaitGroup) {
-	err := consumer.SubscribeTopics([]string{topic}, nil)
+	consumer, err := NewConsumer(&conf)
 	if err != nil {
-		log.Panicf("Failed to create consumer: %v", err)
+		log.Panicf("Failed to create consumer: %s", err)
 		os.Exit(1)
 	}
 
-	// Process messages
-
-	for true {
-		select {
-		case <-quit:
-			log.Infof("Caught quit message: terminating\n")
-			waitGroup.Done()
-			return
-		default:
-			ev, err := readMessage(consumer, time.Second)
-			if err != nil {
-				if err.(kafka.Error).Code() != kafka.ErrTimedOut {
-					log.Infof("Informal error, apparently: %v", err.(kafka.Error).Code())
-				}
-				// Errors are informational and automatically handled by the consumer
-				continue
-			}
-			var msg message
-			err = json.Unmarshal(ev.Value, &msg)
-			if err != nil {
-				log.Errorf("Failed to parse message from '%s': %v", string(ev.Value), err)
-			}
-			log.Infof("Latency! %s", time.Now().Sub(time.UnixMilli(msg.Timestamp)).String())
-		}
+	err = consumer.subscribeAndConsume(topic)
+	if err != nil {
+		log.Panicf("Failed to subscribeAndConsume: %v", err)
 	}
+
+	sendTimestamps(30, p, topic)
+
+	_ = consumer.close()
+	p.Close()
 }
 
 func readMessage(consumer *kafka.Consumer, timeout time.Duration) (*kafka.Message, error) {
@@ -124,8 +86,10 @@ func readMessage(consumer *kafka.Consumer, timeout time.Duration) (*kafka.Messag
 			return e, nil
 		case kafka.Error:
 			return nil, e
+		case nil:
+			// this is a timeout, calculate a new timeout and loop
 		default:
-			log.Infof("Got event '%v'", ev)
+			log.Debugf("Got event '%v'", ev)
 		}
 
 		if timeout > 0 {
@@ -162,7 +126,7 @@ func sendTimestamps(count int, producer *kafka.Producer, topic string) {
 
 func sendTimestamp(producer *kafka.Producer, topic string, sequence uint32) error {
 	message, _ := BytesFromTimestamp(time.Now().UnixMilli(), sequence)
-	log.Infof("Producing message %v", string(*message))
+	log.Debugf("Producing message %v", string(*message))
 	err := producer.Produce(&kafka.Message{
 		TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
 		Key:            []byte{},
