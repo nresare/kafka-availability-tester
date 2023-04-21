@@ -45,6 +45,7 @@ func (ac *Consumer) callback(_ *kafka.Consumer, event kafka.Event) error {
 func (ac *Consumer) subscribeAndConsume(topic string) error {
 	ac.rebalanceWaitGroup.Add(1)
 	ac.exitWaitGroup.Add(1)
+	log.Infof("Subscribing to topic '%s'", topic)
 	err := ac.consumer.SubscribeTopics([]string{topic}, ac.callback)
 	if err != nil {
 		return err
@@ -63,7 +64,7 @@ func (ac *Consumer) consume() {
 			ac.exitWaitGroup.Done()
 			return
 		default:
-			ev, err := readMessage(ac.consumer, time.Second)
+			ev, err := ac.consumer.ReadMessage(time.Second)
 			if err != nil {
 				if err.(kafka.Error).Code() != kafka.ErrTimedOut {
 					log.Debug("Informal error, apparently: %v", err.(kafka.Error).Code())
@@ -81,7 +82,7 @@ func (ac *Consumer) consume() {
 	}
 }
 
-func (ac *Consumer) Close() error {
+func (ac *Consumer) Stop() error {
 	close(ac.quit)
 	ac.exitWaitGroup.Wait()
 	return ac.consumer.Close()

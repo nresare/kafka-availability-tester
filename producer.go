@@ -23,7 +23,7 @@ func NewProducer(configMap *kafka.ConfigMap, topic string) (*Producer, error) {
 	return &Producer{producer: producer, topic: topic, quit: make(chan struct{})}, nil
 }
 
-func (p *Producer) Close() error {
+func (p *Producer) Stop() error {
 	close(p.quit)
 	p.waiter.Wait()
 	p.producer.Close()
