@@ -13,9 +13,10 @@ type Consumer struct {
 	exitWaitGroup      *sync.WaitGroup
 	rebalanceWaitGroup *sync.WaitGroup
 	quit               chan struct{}
+	watcher            *StateWatcher
 }
 
-func NewConsumer(conf *kafka.ConfigMap) (*Consumer, error) {
+func NewConsumer(conf *kafka.ConfigMap, watcher *StateWatcher) (*Consumer, error) {
 	var exitWaitGroup sync.WaitGroup
 	var rebalanceWaitGroup sync.WaitGroup
 
@@ -29,6 +30,7 @@ func NewConsumer(conf *kafka.ConfigMap) (*Consumer, error) {
 		exitWaitGroup:      &exitWaitGroup,
 		rebalanceWaitGroup: &rebalanceWaitGroup,
 		quit:               make(chan struct{}),
+		watcher:            watcher,
 	}, nil
 }
 
@@ -77,6 +79,7 @@ func (ac *Consumer) consume() {
 			if err != nil {
 				log.Errorf("Failed to parse message from '%s': %v", string(ev.Value), err)
 			}
+			ac.watcher.received(msg.Sequence)
 			log.Infof("Latency! %s", time.Now().Sub(time.UnixMilli(msg.Timestamp)).String())
 		}
 	}

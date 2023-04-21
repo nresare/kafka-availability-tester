@@ -21,16 +21,28 @@ type EventSink interface {
 	changeState(state State)
 }
 
+type LoggingEventSink struct{}
+
+func (LoggingEventSink) submitLatency(latency time.Duration) {
+	log.Infof("Received latency %s", latency.String())
+}
+
+func (LoggingEventSink) changeState(state State) {
+	log.Infof("Changed state to %d", state)
+}
+
 type StateWatcher struct {
 	channel   chan msg
 	waitGroup *sync.WaitGroup
 }
 
 func (s *StateWatcher) sent(seq uint64) {
+	log.Debugf("Called sent with seq %d", seq)
 	s.channel <- msg{Sent, seq}
 }
 
 func (s *StateWatcher) received(seq uint64) {
+	log.Debugf("Called received with seq %d", seq)
 	s.channel <- msg{Received, seq}
 }
 

@@ -14,7 +14,7 @@ const ConsumerGroupId = "kafka-availability-tester"
 func main() {
 	log.SetFormatter(&log.JSONFormatter{})
 	log.SetOutput(os.Stdout)
-	log.SetLevel(log.InfoLevel)
+	log.SetLevel(log.DebugLevel)
 
 	err := run("localhost:7070", "test")
 	if err != nil {
@@ -31,15 +31,17 @@ func run(bootstrapServers, topic string) error {
 	// conf := ReadConfig(configFile)
 	conf := kafka.ConfigMap{"bootstrap.servers": bootstrapServers}
 
-	p, err := NewProducer(&conf, topic)
+	watcher := NewStateWatcher(LoggingEventSink{})
+
+	producer, err := NewProducer(&conf, topic, watcher)
 	if err != nil {
 		return fmt.Errorf("failed to create producer %w", err)
 	}
-	toStop = append(toStop, p)
+	toStop = append(toStop, producer)
 
 	conf["group.id"] = ConsumerGroupId
 
-	consumer, err := NewConsumer(&conf)
+	consumer, err := NewConsumer(&conf, watcher)
 	if err != nil {
 		return fmt.Errorf("failed to create consumer: %w", err)
 	}
@@ -50,7 +52,7 @@ func run(bootstrapServers, topic string) error {
 		log.Panicf("Failed to subscribeAndConsume: %v", err)
 	}
 
-	p.run()
+	producer.run()
 
 	waiter := makeWaiter()
 	toStop = append(toStop, waiter)

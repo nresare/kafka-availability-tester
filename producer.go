@@ -12,15 +12,16 @@ type Producer struct {
 	topic    string
 	quit     chan struct{}
 	waiter   sync.WaitGroup
+	watcher  *StateWatcher
 }
 
-func NewProducer(configMap *kafka.ConfigMap, topic string) (*Producer, error) {
+func NewProducer(configMap *kafka.ConfigMap, topic string, watcher *StateWatcher) (*Producer, error) {
 	producer, err := kafka.NewProducer(configMap)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Producer{producer: producer, topic: topic, quit: make(chan struct{})}, nil
+	return &Producer{producer: producer, topic: topic, quit: make(chan struct{}), watcher: watcher}, nil
 }
 
 func (p *Producer) Stop() error {
@@ -32,14 +33,14 @@ func (p *Producer) Stop() error {
 
 func (p *Producer) run() {
 	ticker := time.NewTicker(500 * time.Millisecond)
-	sequence := uint32(0)
+	sequence := uint64(0)
 	p.waiter.Add(1)
 	go p.eventConsumerThread()
 	go func() {
 		for {
 			select {
 			case <-ticker.C:
-				_ = sendTimestamp(p.producer, p.topic, sequence)
+				_ = p.sendTimestamp(sequence)
 				sequence++
 
 			case <-p.quit:
@@ -68,14 +69,15 @@ func (p *Producer) eventConsumerThread() {
 	}
 }
 
-func sendTimestamp(producer *kafka.Producer, topic string, sequence uint32) error {
+func (p *Producer) sendTimestamp(sequence uint64) error {
 	message, _ := BytesFromTimestamp(time.Now().UnixMilli(), sequence)
-	err := producer.Produce(&kafka.Message{
-		TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
+	p.watcher.sent(sequence)
+	err := p.producer.Produce(&kafka.Message{
+		TopicPartition: kafka.TopicPartition{Topic: &p.topic, Partition: kafka.PartitionAny},
 		Key:            []byte{},
 		Value:          *message,
 	}, nil)
-	_ = producer.Flush(FlushTimeoutMs)
+	_ = p.producer.Flush(FlushTimeoutMs)
 	if err != nil {
 		return err
 	}
