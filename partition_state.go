@@ -28,7 +28,12 @@ func (LoggingEventSink) submitLatency(latency time.Duration) {
 }
 
 func (LoggingEventSink) changeState(state State) {
-	log.Infof("Changed state to %d", state)
+	switch state {
+	case Available:
+		log.Infof("Topic is available")
+	case Unavailable:
+		log.Infof("Topic is no longer available")
+	}
 }
 
 type StateWatcher struct {

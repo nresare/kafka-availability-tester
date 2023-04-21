@@ -34,39 +34,39 @@ func NewConsumer(conf *kafka.ConfigMap, watcher *StateWatcher) (*Consumer, error
 	}, nil
 }
 
-func (ac *Consumer) callback(_ *kafka.Consumer, event kafka.Event) error {
+func (c *Consumer) callback(_ *kafka.Consumer, event kafka.Event) error {
 	log.Debugf("called callback: %v", event)
 	switch event.(type) {
 	case kafka.AssignedPartitions:
-		ac.rebalanceWaitGroup.Done()
+		c.rebalanceWaitGroup.Done()
 	}
 	return nil
 }
 
 // This method blocks until the consumer group has rebalanced
-func (ac *Consumer) subscribeAndConsume(topic string) error {
-	ac.rebalanceWaitGroup.Add(1)
-	ac.exitWaitGroup.Add(1)
+func (c *Consumer) subscribeAndConsume(topic string) error {
+	c.rebalanceWaitGroup.Add(1)
+	c.exitWaitGroup.Add(1)
 	log.Infof("Subscribing to topic '%s'", topic)
-	err := ac.consumer.SubscribeTopics([]string{topic}, ac.callback)
+	err := c.consumer.SubscribeTopics([]string{topic}, c.callback)
 	if err != nil {
 		return err
 	}
-	go ac.consume()
-	ac.rebalanceWaitGroup.Wait()
+	go c.consume()
+	c.rebalanceWaitGroup.Wait()
 	log.Infof("Successfully joined the consumer group")
 	return nil
 }
 
-func (ac *Consumer) consume() {
+func (c *Consumer) consume() {
 	// Process messages
 	for true {
 		select {
-		case <-ac.quit:
-			ac.exitWaitGroup.Done()
+		case <-c.quit:
+			c.exitWaitGroup.Done()
 			return
 		default:
-			ev, err := ac.consumer.ReadMessage(time.Second)
+			ev, err := c.consumer.ReadMessage(time.Second)
 			if err != nil {
 				if err.(kafka.Error).Code() != kafka.ErrTimedOut {
 					log.Debug("Informal error, apparently: %v", err.(kafka.Error).Code())
@@ -79,14 +79,13 @@ func (ac *Consumer) consume() {
 			if err != nil {
 				log.Errorf("Failed to parse message from '%s': %v", string(ev.Value), err)
 			}
-			ac.watcher.received(msg.Sequence)
-			log.Infof("Latency! %s", time.Now().Sub(time.UnixMilli(msg.Timestamp)).String())
+			c.watcher.received(msg.Sequence)
 		}
 	}
 }
 
-func (ac *Consumer) Stop() error {
-	close(ac.quit)
-	ac.exitWaitGroup.Wait()
-	return ac.consumer.Close()
+func (c *Consumer) Stop() error {
+	close(c.quit)
+	c.exitWaitGroup.Wait()
+	return c.consumer.Close()
 }

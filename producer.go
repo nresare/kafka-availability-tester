@@ -31,8 +31,8 @@ func (p *Producer) Stop() error {
 	return nil
 }
 
-func (p *Producer) run() {
-	ticker := time.NewTicker(500 * time.Millisecond)
+func (p *Producer) run(period time.Duration) {
+	ticker := time.NewTicker(period)
 	sequence := uint64(0)
 	p.waiter.Add(1)
 	go p.eventConsumerThread()
