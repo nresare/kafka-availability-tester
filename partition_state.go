@@ -16,6 +16,16 @@ const (
 	Unavailable
 )
 
+type LoggingEventSink struct{}
+
+func (LoggingEventSink) submitLatency(latency time.Duration) {
+	log.Infof("Received latency %s", latency.String())
+}
+
+func (LoggingEventSink) changeState(state State) {
+	log.Infof("Changed state to %d", state)
+}
+
 type EventSink interface {
 	submitLatency(latency time.Duration)
 	changeState(state State)

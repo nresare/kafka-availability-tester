@@ -13,9 +13,10 @@ type Consumer struct {
 	exitWaitGroup      *sync.WaitGroup
 	rebalanceWaitGroup *sync.WaitGroup
 	quit               chan struct{}
+	watcher            StateWatcher
 }
 
-func NewConsumer(conf *kafka.ConfigMap) (*Consumer, error) {
+func NewConsumer(conf *kafka.ConfigMap, watcher *StateWatcher) (*Consumer, error) {
 	var exitWaitGroup sync.WaitGroup
 	var rebalanceWaitGroup sync.WaitGroup
 
@@ -63,7 +64,8 @@ func (ac *Consumer) consume() {
 			ac.exitWaitGroup.Done()
 			return
 		default:
-			ev, err := readMessage(ac.consumer, time.Second)
+			ev, err := ac.consumer.ReadMessage(time.Second)
+			log.Infof("readMessage returned: %s", ev)
 			if err != nil {
 				if err.(kafka.Error).Code() != kafka.ErrTimedOut {
 					log.Debug("Informal error, apparently: %v", err.(kafka.Error).Code())
@@ -76,12 +78,13 @@ func (ac *Consumer) consume() {
 			if err != nil {
 				log.Errorf("Failed to parse message from '%s': %v", string(ev.Value), err)
 			}
+			ac.watcher.received(msg.Sequence)
 			log.Infof("Latency! %s", time.Now().Sub(time.UnixMilli(msg.Timestamp)).String())
 		}
 	}
 }
 
-func (ac *Consumer) Close() error {
+func (ac *Consumer) Stop() error {
 	close(ac.quit)
 	ac.exitWaitGroup.Wait()
 	return ac.consumer.Close()
