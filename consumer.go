@@ -60,7 +60,6 @@ func (ac *Consumer) consume() {
 	for true {
 		select {
 		case <-ac.quit:
-			log.Infof("Caught quit message: terminating\n")
 			ac.exitWaitGroup.Done()
 			return
 		default:
@@ -82,7 +81,7 @@ func (ac *Consumer) consume() {
 	}
 }
 
-func (ac *Consumer) close() error {
+func (ac *Consumer) Close() error {
 	close(ac.quit)
 	ac.exitWaitGroup.Wait()
 	return ac.consumer.Close()

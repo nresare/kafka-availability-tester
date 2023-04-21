@@ -2,8 +2,10 @@ package main
 
 import "C"
 import (
+	"fmt"
 	"math"
 	"os"
+	"os/signal"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/kafka"
@@ -11,6 +13,7 @@ import (
 )
 
 const FlushTimeoutMs = 15 * 1000
+const ConsumerGroupId = "kafka-availability-tester"
 
 func init() {
 	log.SetFormatter(&log.JSONFormatter{})
@@ -19,50 +22,69 @@ func init() {
 }
 
 func main() {
-	// conf := ReadConfig(configFile)
-	conf := kafka.ConfigMap{"bootstrap.servers": "localhost:7070"}
 
-	topic := "test"
-	p, err := kafka.NewProducer(&conf)
+	err := run("localhost:7070", "test")
 	if err != nil {
-		log.Panicf("Failed to create producer: %s", err)
-		os.Exit(1)
+		log.Errorf("%v", err)
+		os.Exit(-1)
 	}
+}
 
-	conf["group.id"] = "kafka-availability-tester"
-	//conf["auto.offset.reset"] = "earliest"
+type Closable interface {
+	// Close release all resources used by this object, including goroutines.
+	Close() error
+}
 
-	// Go-routine to handle message delivery reports and
-	// possibly other event types (errors, stats, etc)
+func run(bootstrapServers, topic string) error {
+	var toClose []Closable
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
 	go func() {
-		for e := range p.Events() {
-			switch ev := e.(type) {
-			case *kafka.Message:
-				if ev.TopicPartition.Error != nil {
-					log.Warnf("Failed to deliver message: %v\n", ev.TopicPartition)
-				}
-			default:
-				log.Info("Got event from events consumer: %s", ev)
-			}
-
+		<-c
+		log.Infof("Caught a SIGTERM, closing")
+		for _, closable := range toClose {
+			_ = closable.Close()
 		}
 	}()
 
+	log.Infof("Connecting to boostrap address '%s' to produce and consume topic '%s'", bootstrapServers, topic)
+	// conf := ReadConfig(configFile)
+	conf := kafka.ConfigMap{"bootstrap.servers": bootstrapServers}
+
+	p, err := NewProducer(&conf, topic)
+	if err != nil {
+		return fmt.Errorf("failed to create producer %w", err)
+	}
+	toClose = append(toClose, p)
+
+	conf["group.id"] = ConsumerGroupId
+
 	consumer, err := NewConsumer(&conf)
 	if err != nil {
-		log.Panicf("Failed to create consumer: %s", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to create consumer: %w", err)
 	}
+	toClose = append(toClose, consumer)
 
 	err = consumer.subscribeAndConsume(topic)
 	if err != nil {
 		log.Panicf("Failed to subscribeAndConsume: %v", err)
 	}
 
-	sendTimestamps(30, p, topic)
+	p.run()
 
-	_ = consumer.close()
-	p.Close()
+	stop := closableChannel{make(chan struct{})}
+	toClose = append(toClose, stop)
+	<-stop.stop
+	return nil
+}
+
+type closableChannel struct {
+	stop chan struct{}
+}
+
+func (cc closableChannel) Close() error {
+	close(cc.stop)
+	return nil
 }
 
 func readMessage(consumer *kafka.Consumer, timeout time.Duration) (*kafka.Message, error) {
@@ -102,40 +124,4 @@ func readMessage(consumer *kafka.Consumer, timeout time.Duration) (*kafka.Messag
 		}
 	}
 
-}
-
-func sendTimestamps(count int, producer *kafka.Producer, topic string) {
-	ticker := time.NewTicker(500 * time.Millisecond)
-	quit := make(chan struct{})
-	sequence := uint32(0)
-	for {
-		select {
-		case <-ticker.C:
-			_ = sendTimestamp(producer, topic, sequence)
-			sequence++
-			count--
-			if count < 0 {
-				return
-			}
-		case <-quit:
-			ticker.Stop()
-			return
-		}
-	}
-}
-
-func sendTimestamp(producer *kafka.Producer, topic string, sequence uint32) error {
-	message, _ := BytesFromTimestamp(time.Now().UnixMilli(), sequence)
-	log.Debugf("Producing message %v", string(*message))
-	err := producer.Produce(&kafka.Message{
-		TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
-		Key:            []byte{},
-		Value:          *message,
-	}, nil)
-	_ = producer.Flush(FlushTimeoutMs)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
