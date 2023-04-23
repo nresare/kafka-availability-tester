@@ -76,6 +76,9 @@ func (ss *StatSink) doLogSummary() Statistics {
 		sum += datum
 	}
 	avg := time.Duration(float64(sum) / float64(count))
+	if count == 0 {
+		return Statistics{}
+	}
 	stats := Statistics{
 		uint32(count),
 		avg,
