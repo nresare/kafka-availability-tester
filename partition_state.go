@@ -21,13 +21,16 @@ type EventSink interface {
 	changeState(state State)
 }
 
-type LoggingEventSink struct{}
-
-func (LoggingEventSink) submitLatency(latency time.Duration) {
-	log.Infof("Received latency %s", latency.String())
+type StatsEventSink struct {
+	statSink *StatSink
 }
 
-func (LoggingEventSink) changeState(state State) {
+func (ses StatsEventSink) submitLatency(latency time.Duration) {
+	log.Debugf("Received latency %s", latency.String())
+	ses.statSink.Put(latency)
+}
+
+func (StatsEventSink) changeState(state State) {
 	switch state {
 	case Available:
 		log.Infof("Topic is available")

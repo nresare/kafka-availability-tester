@@ -69,7 +69,7 @@ func (c *Consumer) consume() {
 			ev, err := c.consumer.ReadMessage(time.Second)
 			if err != nil {
 				if err.(kafka.Error).Code() != kafka.ErrTimedOut {
-					log.Debug("Informal error, apparently: %v", err.(kafka.Error).Code())
+					log.Debugf("Informal error, apparently: %v", err.(kafka.Error).Code())
 				}
 				// Errors are informational and automatically handled by the consumer
 				continue

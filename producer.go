@@ -8,11 +8,12 @@ import (
 )
 
 type Producer struct {
-	producer *kafka.Producer
-	topic    string
-	quit     chan struct{}
-	waiter   sync.WaitGroup
-	watcher  *StateWatcher
+	producer           *kafka.Producer
+	topic              string
+	quit               chan struct{}
+	consumerThreadQuit chan struct{}
+	waiter             sync.WaitGroup
+	watcher            *StateWatcher
 }
 
 func NewProducer(configMap *kafka.ConfigMap, topic string, watcher *StateWatcher) (*Producer, error) {
@@ -21,10 +22,11 @@ func NewProducer(configMap *kafka.ConfigMap, topic string, watcher *StateWatcher
 		return nil, err
 	}
 
-	return &Producer{producer: producer, topic: topic, quit: make(chan struct{}), watcher: watcher}, nil
+	return &Producer{producer: producer, topic: topic, quit: make(chan struct{}), consumerThreadQuit: make(chan struct{}), watcher: watcher}, nil
 }
 
 func (p *Producer) Stop() error {
+	close(p.consumerThreadQuit)
 	close(p.quit)
 	p.waiter.Wait()
 	p.producer.Close()
@@ -53,6 +55,7 @@ func (p *Producer) run(period time.Duration) {
 }
 
 func (p *Producer) eventConsumerThread() {
+	p.waiter.Add(1)
 	for {
 		select {
 		case e := <-p.producer.Events():
@@ -62,10 +65,13 @@ func (p *Producer) eventConsumerThread() {
 					log.Warnf("Failed to deliver message: %v\n", ev.TopicPartition)
 				}
 			default:
-				log.Info("Got event from events consumer: %s", ev)
-				return
+				log.Infof("Got event from events consumer: %s", ev)
 			}
+		case <-p.consumerThreadQuit:
+			p.waiter.Done()
+			return
 		}
+
 	}
 }
 

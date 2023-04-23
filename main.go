@@ -11,14 +11,15 @@ import (
 
 const FlushTimeoutMs = 15 * 1000
 const ConsumerGroupId = "kafka-availability-tester"
-const Period = 100 * time.Millisecond
+const SendPeriod = 100 * time.Millisecond
+const StatsPeriod = 10 * time.Second
 
 func main() {
 	log.SetFormatter(&log.JSONFormatter{})
 	log.SetOutput(os.Stdout)
 	log.SetLevel(log.InfoLevel)
 
-	err := run("localhost:7070", "test", Period)
+	err := run("localhost:7070", "test", SendPeriod)
 	if err != nil {
 		log.Errorf("%v", err)
 		os.Exit(-1)
@@ -33,7 +34,8 @@ func run(bootstrapServers, topic string, period time.Duration) error {
 	// conf := ReadConfig(configFile)
 	conf := kafka.ConfigMap{"bootstrap.servers": bootstrapServers}
 
-	watcher := NewStateWatcher(LoggingEventSink{})
+	statsEventSink := StartNewStatSink()
+	watcher := NewStateWatcher(StatsEventSink{statsEventSink})
 
 	producer, err := NewProducer(&conf, topic, watcher)
 	if err != nil {
@@ -54,12 +56,26 @@ func run(bootstrapServers, topic string, period time.Duration) error {
 		log.Panicf("Failed to subscribeAndConsume: %v", err)
 	}
 
-	log.Infof("Producing a message every %s", Period)
-	producer.run(Period)
+	log.Infof("Producing a message every %s", SendPeriod)
+	producer.run(SendPeriod)
+
+	startPeriodicStatLogger(statsEventSink)
 
 	waiter := makeWaiter()
 	toStop = append(toStop, waiter)
 	waiter.waitUntilStopped()
 
 	return nil
+}
+
+func startPeriodicStatLogger(sink *StatSink) {
+	ticker := time.NewTicker(StatsPeriod)
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				log.Infof("%s", sink.MakeStats())
+			}
+		}
+	}()
 }
