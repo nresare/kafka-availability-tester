@@ -19,11 +19,12 @@ type Statistics struct {
 	average      time.Duration
 	percentile90 time.Duration
 	percentile99 time.Duration
+	percentile100 time.Duration
 }
 
 func (s Statistics) String() string {
 	return fmt.Sprintf(
-		"Statistics{count: %d, avg: %s, p90: %s, p99: %s}", s.count, s.average, s.percentile90, s.percentile99,
+		"Statistics{count: %d, avg: %s, p90: %s, p99: %s, p100: %s}", s.count, s.average, s.percentile90, s.percentile99, s.percentile100,
 	)
 }
 
@@ -84,6 +85,7 @@ func (ss *StatSink) doLogSummary() Statistics {
 		avg,
 		ss.seen[int(float32(count)*0.9)],
 		ss.seen[int(float32(count)*0.99)],
+		ss.seen[int(float32(count)*1.0)],
 	}
 	ss.seen = nil
 	return stats
