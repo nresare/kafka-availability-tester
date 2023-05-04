@@ -7,11 +7,17 @@ nodes:
   extraPortMappings:
   - containerPort: 30950
     hostPort: 7070
+  - containerPort: 30960
+    hostPort: 7080
 - role: worker
   extraPortMappings:
   - containerPort: 30951
     hostPort: 7071
+  - containerPort: 30961
+    hostPort: 7081
 - role: worker
   extraPortMappings:
   - containerPort: 30952
     hostPort: 7072
+  - containerPort: 30962
+    hostPort: 7082

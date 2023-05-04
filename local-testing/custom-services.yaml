@@ -72,3 +72,78 @@ spec:
     strimzi.io/kind: Kafka
     strimzi.io/name: my-cluster-kafka
   sessionAffinity: None
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-cluster-kafka-tls-0
+  namespace: kafka
+spec:
+  type: NodePort
+  externalTrafficPolicy: Cluster
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: tcp-plain
+    nodePort: 30960
+    port: 9093
+    protocol: TCP
+    targetPort: 9093
+  selector:
+    statefulset.kubernetes.io/pod-name: my-cluster-kafka-0
+    strimzi.io/cluster: my-cluster
+    strimzi.io/kind: Kafka
+    strimzi.io/name: my-cluster-kafka
+  sessionAffinity: None
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-cluster-kafka-tls-1
+  namespace: kafka
+spec:
+  type: NodePort
+  externalTrafficPolicy: Cluster
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: tcp-plain
+    nodePort: 30961
+    port: 9093
+    protocol: TCP
+    targetPort: 9093
+  selector:
+    statefulset.kubernetes.io/pod-name: my-cluster-kafka-0
+    strimzi.io/cluster: my-cluster
+    strimzi.io/kind: Kafka
+    strimzi.io/name: my-cluster-kafka
+  sessionAffinity: None
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-cluster-kafka-tls-2
+  namespace: kafka
+spec:
+  type: NodePort
+  externalTrafficPolicy: Cluster
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: tcp-plain
+    nodePort: 30962
+    port: 9093
+    protocol: TCP
+    targetPort: 9093
+  selector:
+    statefulset.kubernetes.io/pod-name: my-cluster-kafka-0
+    strimzi.io/cluster: my-cluster
+    strimzi.io/kind: Kafka
+    strimzi.io/name: my-cluster-kafka
+  sessionAffinity: None

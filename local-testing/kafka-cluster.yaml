@@ -7,6 +7,18 @@ spec:
   kafka:
     version: 3.4.0
     replicas: 3
+    template:
+      pod:
+        affinity:
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchExpressions:
+                    - key: strimzi.io/name
+                      operator: In
+                      values:
+                        - my-cluster-kafka
+                topologyKey: "kubernetes.io/hostname"
     listeners:
       - name: plain
         port: 9092
@@ -23,6 +35,23 @@ spec:
             - broker: 2
               advertisedHost: 127.0.0.1
               advertisedPort: 7072
+      - name: tls
+        port: 9093
+        tls: true
+        type: internal
+        authentication:
+          type: tls
+        configuration:
+          brokers:
+            - broker: 0
+              advertisedHost: 127.0.0.1
+              advertisedPort: 7080
+            - broker: 1
+              advertisedHost: 127.0.0.1
+              advertisedPort: 7081
+            - broker: 2
+              advertisedHost: 127.0.0.1
+              advertisedPort: 7082
     config:
       offsets.topic.replication.factor: 3
       transaction.state.log.replication.factor: 3
