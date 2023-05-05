@@ -19,6 +19,7 @@ func TestStats(t *testing.T) {
 			15 * time.Millisecond,
 			20 * time.Millisecond,
 			20 * time.Millisecond,
+			20 * time.Millisecond,
 		},
 		result,
 	)

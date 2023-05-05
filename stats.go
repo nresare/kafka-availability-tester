@@ -15,10 +15,10 @@ type StatSink struct {
 }
 
 type Statistics struct {
-	count        uint32
-	average      time.Duration
-	percentile90 time.Duration
-	percentile99 time.Duration
+	count         uint32
+	average       time.Duration
+	percentile90  time.Duration
+	percentile99  time.Duration
 	percentile100 time.Duration
 }
 
@@ -85,7 +85,7 @@ func (ss *StatSink) doLogSummary() Statistics {
 		avg,
 		ss.seen[int(float32(count)*0.9)],
 		ss.seen[int(float32(count)*0.99)],
-		ss.seen[int(float32(count)*1.0)],
+		ss.seen[count-1],
 	}
 	ss.seen = nil
 	return stats
