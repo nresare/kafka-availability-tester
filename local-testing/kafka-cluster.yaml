@@ -19,6 +19,9 @@ spec:
                       values:
                         - my-cluster-kafka
                 topologyKey: "kubernetes.io/hostname"
+    logging:
+      loggers:
+        log4j.logger.io.strimzi.kafka.oauth: DEBUG
     listeners:
       - name: plain
         port: 9092
