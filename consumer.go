@@ -42,7 +42,7 @@ func (c *Consumer) callback(_ *kafka.Consumer, event kafka.Event) error {
 	case kafka.AssignedPartitions:
 		c.rebalanceWaitGroup.Done()
 	default:
-		log.Infof("Got event from events consumer: %s", event)
+		log.Debugf("Got event from events consumer: %s", event)
 	}
 
 	return nil
@@ -121,7 +121,7 @@ func ReadMessage(timeout time.Duration, c *kafka.Consumer) (*kafka.Message, erro
 			}
 		default:
 			if e != nil {
-				log.Infof("Got message: %v", e)
+				log.Debugf("Got message: %v", e)
 			}
 		}
 

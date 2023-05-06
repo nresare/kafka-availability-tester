@@ -93,7 +93,7 @@ func (p *Producer) sendTimestamp(sequence uint64) error {
 		Key:            []byte{},
 		Value:          *message,
 	}, nil)
-	_ = p.producer.Flush(FlushTimeoutMs)
+	_ = p.producer.Flush(int(FlushTimeout.Milliseconds()))
 	if err != nil {
 		return err
 	}
