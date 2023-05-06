@@ -40,7 +40,11 @@ spec:
         tls: true
         type: internal
         authentication:
-          type: tls
+          accessTokenIsJwt: true
+          checkAccessTokenType: false
+          jwksEndpointUri: https://login.microsoftonline.com/1b5955bf-2426-4ced-8412-9fe81bb8bca4/discovery/v2.0/keys
+          type: oauth
+          validIssuerUri: https://sts.windows.net/1b5955bf-2426-4ced-8412-9fe81bb8bca4/
         configuration:
           brokers:
             - broker: 0
