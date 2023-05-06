@@ -6,32 +6,62 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"os"
 )
 import "github.com/AzureAD/microsoft-authentication-library-for-go/apps/confidential"
 
-func main() {
-	certs, err := getCerts("local-testing/cert.pem")
-	if err != nil {
-		panic(err)
-	}
-
-	privateKey, err := getPrivateKey("local-testing/key.pem")
-
-	cred, err := confidential.NewCredFromCert(certs, privateKey)
-
-	client, err := confidential.New("https://login.microsoftonline.com/1b5955bf-2426-4ced-8412-9fe81bb8bca4",
+func Xmain() {
+	token, err := fetchToken(
+		"https://login.microsoftonline.com/1b5955bf-2426-4ced-8412-9fe81bb8bca4",
 		"0aec160a-1457-4fef-a5e1-3276d1ef3f42",
-		cred,
+		"local-testing/cert.pem",
+		"local-testing/key.pem",
+		"https://noaresare.onmicrosoft.com/kafka/.default",
 	)
 	if err != nil {
 		panic(err)
 	}
-	result, err := client.AcquireTokenByCredential(context.Background(), []string{"https://noaresare.onmicrosoft.com/kafka/.default"})
+	fmt.Printf("Result: %s", *token)
+}
+
+func hardcodedFetch() (*kafka.OAuthBearerToken, error) {
+	result, err := fetchToken(
+		"https://login.microsoftonline.com/1b5955bf-2426-4ced-8412-9fe81bb8bca4",
+		"0aec160a-1457-4fef-a5e1-3276d1ef3f42",
+		"local-testing/cert.pem",
+		"local-testing/key.pem",
+		"https://noaresare.onmicrosoft.com/kafka/.default",
+	)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	fmt.Printf("Result: %s", result.AccessToken)
+	sub := "d0d3b25c-3018-4d57-8342-44bb2a281aab"
+	return &kafka.OAuthBearerToken{TokenValue: result.AccessToken, Expiration: result.ExpiresOn, Principal: sub}, nil
+}
+
+func fetchToken(authority, clientId, certPath, keyPath, scope string) (*confidential.AuthResult, error) {
+	certs, err := getCerts(certPath)
+	if err != nil {
+		return nil, err
+	}
+
+	privateKey, err := getPrivateKey(keyPath)
+	if err != nil {
+		return nil, err
+	}
+
+	cred, err := confidential.NewCredFromCert(certs, privateKey)
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := confidential.New(authority, clientId, cred)
+	if err != nil {
+		return nil, err
+	}
+	result, err := client.AcquireTokenByCredential(context.Background(), []string{scope})
+	return &result, nil
 }
 
 func getCerts(path string) ([]*x509.Certificate, error) {

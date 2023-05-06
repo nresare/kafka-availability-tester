@@ -1,6 +1,5 @@
 package main
 
-import "C"
 import (
 	"fmt"
 	"github.com/confluentinc/confluent-kafka-go/kafka"
@@ -19,7 +18,7 @@ func main() {
 	log.SetOutput(os.Stdout)
 	log.SetLevel(log.InfoLevel)
 
-	err := run("localhost:7070", "test", SendPeriod)
+	err := run("localhost:7080", "test", SendPeriod)
 	if err != nil {
 		log.Errorf("%v", err)
 		os.Exit(-1)
@@ -31,8 +30,12 @@ func run(bootstrapServers, topic string, period time.Duration) error {
 	installStoppingSignalHandler(&toStop, os.Interrupt)
 
 	log.Infof("Connecting to boostrap address '%s'", bootstrapServers)
-	// conf := ReadConfig(configFile)
-	conf := kafka.ConfigMap{"bootstrap.servers": bootstrapServers}
+	conf := kafka.ConfigMap{
+		"bootstrap.servers": bootstrapServers,
+		"security.protocol": "SASL_SSL",
+		"ssl.ca.location":   "local-testing/ca-cert.pem",
+		"sasl.mechanism":    "OAUTHBEARER",
+	}
 
 	statsEventSink := StartNewStatSink()
 	watcher := NewStateWatcher(StatsEventSink{statsEventSink})
@@ -56,8 +59,8 @@ func run(bootstrapServers, topic string, period time.Duration) error {
 		log.Panicf("Failed to subscribeAndConsume: %v", err)
 	}
 
-	log.Infof("Producing a message every %s", SendPeriod)
-	producer.run(SendPeriod)
+	log.Infof("Producing a message every %s", period)
+	producer.run(period)
 
 	startPeriodicStatLogger(statsEventSink)
 

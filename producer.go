@@ -21,7 +21,6 @@ func NewProducer(configMap *kafka.ConfigMap, topic string, watcher *StateWatcher
 	if err != nil {
 		return nil, err
 	}
-
 	return &Producer{producer: producer, topic: topic, quit: make(chan struct{}), consumerThreadQuit: make(chan struct{}), watcher: watcher}, nil
 }
 
@@ -64,8 +63,11 @@ func (p *Producer) eventConsumerThread() {
 				if ev.TopicPartition.Error != nil {
 					log.Warnf("Failed to deliver message: %v\n", ev.TopicPartition)
 				}
+			case kafka.OAuthBearerTokenRefresh:
+				log.Infof("sending token for producer")
+				sendProducerToken(p.producer)
 			default:
-				log.Infof("Got event from events consumer: %s", ev)
+				log.Infof("Got event from events consumer thread: %s", ev)
 			}
 		case <-p.consumerThreadQuit:
 			p.waiter.Done()
@@ -73,6 +75,14 @@ func (p *Producer) eventConsumerThread() {
 		}
 
 	}
+}
+
+func sendProducerToken(consumer *kafka.Producer) error {
+	token, err := hardcodedFetch()
+	if err != nil {
+		return err
+	}
+	return consumer.SetOAuthBearerToken(*token)
 }
 
 func (p *Producer) sendTimestamp(sequence uint64) error {
