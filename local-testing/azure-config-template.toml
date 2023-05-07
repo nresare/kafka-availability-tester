@@ -1,0 +1,12 @@
+# The url of a token authority
+authority = "https://login.microsoftonline.com/<YOUR_TENANT_ID>"
+# The Application (client) ID from Azure AD -> App Registration -> The app you associated with your cert
+client-id = "<An Application (client) ID, in UUID form>"
+# The path to the pem file containing the cert registred with the app referenced by client-id for authentication
+cert-path = "local-testing/cert.pem"
+# The path to the pem file containing the private key associaited with the cert used for credentials
+key-path = "some/path/key.pem"
+# The scope to use when requesting a token
+scope = "<some UUID>/.default"
+# The principal that the kafka server will use, unless chaned this is the `sub` claim
+principal = "<some UUID>"

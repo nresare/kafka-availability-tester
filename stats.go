@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -83,8 +84,8 @@ func (ss *StatSink) doLogSummary() Statistics {
 	stats := Statistics{
 		uint32(count),
 		avg,
-		ss.seen[int(float32(count)*0.9)],
-		ss.seen[int(float32(count)*0.99)],
+		ss.seen[int(math.Round(float64(count)*0.90))-1],
+		ss.seen[int(math.Round(float64(count)*0.99))-1],
 		ss.seen[count-1],
 	}
 	ss.seen = nil
