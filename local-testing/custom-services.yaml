@@ -117,7 +117,7 @@ spec:
     protocol: TCP
     targetPort: 9093
   selector:
-    statefulset.kubernetes.io/pod-name: my-cluster-kafka-0
+    statefulset.kubernetes.io/pod-name: my-cluster-kafka-1
     strimzi.io/cluster: my-cluster
     strimzi.io/kind: Kafka
     strimzi.io/name: my-cluster-kafka
@@ -142,7 +142,7 @@ spec:
     protocol: TCP
     targetPort: 9093
   selector:
-    statefulset.kubernetes.io/pod-name: my-cluster-kafka-0
+    statefulset.kubernetes.io/pod-name: my-cluster-kafka-2
     strimzi.io/cluster: my-cluster
     strimzi.io/kind: Kafka
     strimzi.io/name: my-cluster-kafka

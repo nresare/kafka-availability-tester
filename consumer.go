@@ -1,9 +1,12 @@
 package main
 
+import "C"
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 	log "github.com/sirupsen/logrus"
+	"math"
 	"sync"
 	"time"
 )
@@ -14,9 +17,10 @@ type Consumer struct {
 	rebalanceWaitGroup *sync.WaitGroup
 	quit               chan struct{}
 	watcher            *StateWatcher
+	fetcher            TokenFetcher
 }
 
-func NewConsumer(conf *kafka.ConfigMap, watcher *StateWatcher) (*Consumer, error) {
+func NewConsumer(conf *kafka.ConfigMap, watcher *StateWatcher, fetcher TokenFetcher) (*Consumer, error) {
 	var exitWaitGroup sync.WaitGroup
 	var rebalanceWaitGroup sync.WaitGroup
 
@@ -31,6 +35,7 @@ func NewConsumer(conf *kafka.ConfigMap, watcher *StateWatcher) (*Consumer, error
 		rebalanceWaitGroup: &rebalanceWaitGroup,
 		quit:               make(chan struct{}),
 		watcher:            watcher,
+		fetcher:            fetcher,
 	}, nil
 }
 
@@ -39,7 +44,10 @@ func (c *Consumer) callback(_ *kafka.Consumer, event kafka.Event) error {
 	switch event.(type) {
 	case kafka.AssignedPartitions:
 		c.rebalanceWaitGroup.Done()
+	default:
+		log.Debugf("Got event from events consumer: %s", event)
 	}
+
 	return nil
 }
 
@@ -66,7 +74,7 @@ func (c *Consumer) consume() {
 			c.exitWaitGroup.Done()
 			return
 		default:
-			ev, err := c.consumer.ReadMessage(time.Second)
+			ev, err := ReadMessage(time.Second, c.consumer, c.fetcher)
 			if err != nil {
 				if err.(kafka.Error).Code() != kafka.ErrTimedOut {
 					log.Debugf("Informal error, apparently: %v", err.(kafka.Error).Code())
@@ -82,6 +90,66 @@ func (c *Consumer) consume() {
 			c.watcher.received(msg.Sequence)
 		}
 	}
+}
+
+// ReadMessage is a copy of the upstream version to experiment with
+func ReadMessage(timeout time.Duration, c *kafka.Consumer, fetcher TokenFetcher) (*kafka.Message, error) {
+
+	var absTimeout time.Time
+	var timeoutMs int
+
+	if timeout > 0 {
+		absTimeout = time.Now().Add(timeout)
+		timeoutMs = (int)(timeout.Seconds() * 1000.0)
+	} else {
+		timeoutMs = (int)(timeout)
+	}
+
+	for {
+		ev := c.Poll(timeoutMs)
+
+		switch e := ev.(type) {
+		case *kafka.Message:
+			if e.TopicPartition.Error != nil {
+				return e, e.TopicPartition.Error
+			}
+			return e, nil
+		case kafka.Error:
+			return nil, e
+		case kafka.OAuthBearerTokenRefresh:
+			if fetcher == nil {
+				return nil, fmt.Errorf("got token request but token fetcher is missing")
+			}
+			log.Infof("Providing token")
+			token, err := fetcher.Fetch()
+			if err != nil {
+				log.Warnf("Failed to fetch token: %v", err)
+				err = c.SetOAuthBearerTokenFailure(err.Error())
+				if err != nil {
+					return nil, err
+				}
+			}
+			err = c.SetOAuthBearerToken(*token)
+			if err != nil {
+				return nil, err
+			}
+		default:
+			if e != nil {
+				log.Debugf("Got message: %v", e)
+			}
+		}
+
+		if timeout > 0 {
+			// Calculate remaining time
+			timeoutMs = int(math.Max(0.0, absTimeout.Sub(time.Now()).Seconds()*1000.0))
+		}
+
+		if timeoutMs == 0 && ev == nil {
+			return nil, kafka.NewError(kafka.ErrTimedOut, "", false)
+		}
+
+	}
+
 }
 
 func (c *Consumer) Stop() error {

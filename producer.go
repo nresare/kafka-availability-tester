@@ -14,15 +14,22 @@ type Producer struct {
 	consumerThreadQuit chan struct{}
 	waiter             sync.WaitGroup
 	watcher            *StateWatcher
+	fetcher            TokenFetcher
 }
 
-func NewProducer(configMap *kafka.ConfigMap, topic string, watcher *StateWatcher) (*Producer, error) {
+func NewProducer(configMap *kafka.ConfigMap, topic string, watcher *StateWatcher, fetcher TokenFetcher) (*Producer, error) {
 	producer, err := kafka.NewProducer(configMap)
 	if err != nil {
 		return nil, err
 	}
-
-	return &Producer{producer: producer, topic: topic, quit: make(chan struct{}), consumerThreadQuit: make(chan struct{}), watcher: watcher}, nil
+	return &Producer{
+		producer:           producer,
+		topic:              topic,
+		quit:               make(chan struct{}),
+		consumerThreadQuit: make(chan struct{}),
+		watcher:            watcher,
+		fetcher:            fetcher,
+	}, nil
 }
 
 func (p *Producer) Stop() error {
@@ -64,8 +71,18 @@ func (p *Producer) eventConsumerThread() {
 				if ev.TopicPartition.Error != nil {
 					log.Warnf("Failed to deliver message: %v\n", ev.TopicPartition)
 				}
+			case kafka.OAuthBearerTokenRefresh:
+				log.Infof("sending token for producer")
+				token, err := p.fetcher.Fetch()
+				if err != nil {
+					log.Errorf("Failed to fetch token: %v", err)
+				}
+				err = p.producer.SetOAuthBearerToken(*token)
+				if err != nil {
+					log.Errorf("Failed to set set bearer token: %v", err)
+				}
 			default:
-				log.Infof("Got event from events consumer: %s", ev)
+				log.Infof("Got event from events consumer thread: %s", ev)
 			}
 		case <-p.consumerThreadQuit:
 			p.waiter.Done()
@@ -83,7 +100,7 @@ func (p *Producer) sendTimestamp(sequence uint64) error {
 		Key:            []byte{},
 		Value:          *message,
 	}, nil)
-	_ = p.producer.Flush(FlushTimeoutMs)
+	_ = p.producer.Flush(int(FlushTimeout.Milliseconds()))
 	if err != nil {
 		return err
 	}
