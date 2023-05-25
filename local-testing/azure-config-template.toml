@@ -8,5 +8,5 @@ cert-path = "local-testing/cert.pem"
 key-path = "some/path/key.pem"
 # The scope to use when requesting a token
 scope = "<some UUID>/.default"
-# The principal that the kafka server will use, unless chaned this is the `sub` claim
+# The principal that the kafka server will use, unless changed this is the `sub` claim
 principal = "<some UUID>"
